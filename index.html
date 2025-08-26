@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dron con Controles Three.js</title>
+    <style>
+        /* Estilo para que el lienzo ocupe toda la pantalla */
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #0d1117; /* Fondo oscuro para mejor contraste */
+            font-family: 'Arial', sans-serif;
+            color: #ffffff;
+        }
+
+        /* Estilo para el panel de controles */
+        #controls-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(0, 0, 0, 0.6);
+            padding: 15px 25px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            text-align: center;
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+            animation: fadeIn 1s ease-in-out;
+        }
+
+        #controls-panel p {
+            margin: 0;
+            font-size: 16px;
+            line-height: 1.6;
+        }
+
+        #controls-panel .key {
+            display: inline-block;
+            background-color: #333;
+            color: #fff;
+            padding: 5px 10px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            margin: 0 4px;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        /* --- NUEVO: Estilos para el mapa de trayectoria --- */
+        #trajectory-map-container {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 200px;
+            height: 200px;
+            background-color: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+            animation: fadeIn 1s ease-in-out;
+        }
+
+        #trajectory-canvas {
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+        }
+
+        /* --- NUEVO: Estilos para controles en pantalla --- */
+        #mobile-controls {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            right: 30px;
+            display: flex;
+            justify-content: space-between;
+            pointer-events: none; /* El contenedor no debe interceptar clics */
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .control-pad {
+            display: grid;
+            grid-template-areas:
+                ". up ."
+                "left center right"
+                ". down .";
+            grid-template-rows: 60px 60px 60px;
+            grid-template-columns: 60px 60px 60px;
+            gap: 10px;
+            pointer-events: all; /* Los botones sí deben ser interactivos */
+            opacity: 0.7;
+        }
+
+        .control-btn {
+            background-color: rgba(50, 50, 50, 0.7);
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            color: white;
+            font-size: 28px;
+            font-weight: bold;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            touch-action: manipulation; /* Mejora la respuesta táctil */
+            transition: background-color 0.1s ease;
+        }
+
+        .control-btn.active {
+            background-color: rgba(255, 255, 255, 0.5);
+        }
+
+        /* Posicionamiento de los botones en la cuadrícula */
+        #btn-forward { grid-area: up; }
+        #btn-left { grid-area: left; }
+        #btn-right { grid-area: right; }
+        #btn-backward { grid-area: down; }
+
+        #btn-up { grid-area: up; }
+        #btn-rot-left { grid-area: left; }
+        #btn-rot-right { grid-area: right; }
+        #btn-down { grid-area: down; }
+
+        /* Media query para ocultar en pantallas grandes */
+        @media (min-width: 1024px) {
+            #mobile-controls {
+                display: none;
+            }
+        }
+
+        /* Ocultar panel de texto de controles en pantallas pequeñas */
+        @media (max-width: 1023px) {
+            #controls-panel {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- --- NUEVO: Contenedor para el Mapa de Trayectoria --- -->
+    <div id="trajectory-map-container">
+        <canvas id="trajectory-canvas"></canvas>
+    </div>
+
+    <div id="controls-panel">
+        <p><strong>Controles del Dron:</strong></p>
+        <p>Subir/Bajar: <span class="key">W</span> (Subir) <span class="key">S</span> (Bajar)</p>
+        <p>Rotar: <span class="key">A</span> (Izquierda) <span class="key">D</span> (Derecha)</p>
+        <p>Mover: <span class="key">↑</span> (Adelante) <span class="key">↓</span> (Atrás) <span class="key">←</span> (Izquierda) <span class="key">→</span> (Derecha)</p>
+    </div>
+
+    <!-- --- NUEVO: Controles en Pantalla --- -->
+    <div id="mobile-controls">
+        <!-- Pad de Movimiento (Izquierda) -->
+        <div id="movement-pad" class="control-pad">
+            <button id="btn-forward" class="control-btn">▲</button>
+            <button id="btn-left" class="control-btn">◀</button>
+            <button id="btn-right" class="control-btn">▶</button>
+            <button id="btn-backward" class="control-btn">▼</button>
+        </div>
+        <!-- Pad de Acción (Derecha) -->
+        <div id="action-pad" class="control-pad">
+            <button id="btn-up" class="control-btn">▲</button>
+            <button id="btn-rot-left" class="control-btn">⟲</button>
+            <button id="btn-rot-right" class="control-btn">⟳</button>
+            <button id="btn-down" class="control-btn">▼</button>
+        </div>
+    </div>
+
+    <!--
+        Este script carga la biblioteca Three.js desde un CDN (Content Delivery Network).
+        Es necesario para que todo el código de Three.js funcione.
+    -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!--
+        Este script carga la biblioteca de físicas cannon-es.
+        Es necesaria para simular las físicas del dron y el mundo.
+    -->
+    <script type="module">
+        import * as CANNON from 'https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js';
+        window.CANNON = CANNON; // Asignar al objeto window para acceso global si es necesario.
+    </script>
+
+    <script type="module">
+        // --- 1. CONFIGURACIÓN DE LA ESCENA ---
+        // Se crea la escena donde se colocarán todos los objetos, luces y la cámara.
+        const scene = new THREE.Scene();
+
+        // --- NUEVO: CONFIGURACIÓN DE AUDIO ---
+        let audioContext;
+        let droneSourceNode;
+        let droneGainNode;
+        let isAudioInitialized = false;
+
+        async function initAudio() {
+            if (isAudioInitialized) return;
+            isAudioInitialized = true;
+
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                
+                const response = await fetch('drone_hum.mp3');
+                const arrayBuffer = await response.arrayBuffer();
+                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+                droneSourceNode = audioContext.createBufferSource();
+                droneSourceNode.buffer = audioBuffer;
+                droneSourceNode.loop = true;
+
+                droneGainNode = audioContext.createGain();
+                // Iniciar con volumen cero
+                droneGainNode.gain.setValueAtTime(0, audioContext.currentTime);
+
+                droneSourceNode.connect(droneGainNode);
+                droneGainNode.connect(audioContext.destination);
+                
+                droneSourceNode.start();
+            } catch (e) {
+                console.error("Error al inicializar el audio:", e);
+            }
+        }
+
+        // El audio se reanudará con la primera interacción del usuario
+        function resumeAudioOnInteraction() {
+            if (audioContext && audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+             // Asegurarse de que el audio se inicialice en la primera interacción si aún no lo ha hecho
+            if (!isAudioInitialized) {
+                initAudio();
+            }
+            // Eliminar el listener después de la primera ejecución para no llamarlo repetidamente
+            window.removeEventListener('keydown', resumeAudioOnInteraction);
+            window.removeEventListener('mousedown', resumeAudioOnInteraction);
+            window.removeEventListener('touchstart', resumeAudioOnInteraction);
+        }
+
+        window.addEventListener('keydown', resumeAudioOnInteraction);
+        window.addEventListener('mousedown', resumeAudioOnInteraction);
+        window.addEventListener('touchstart', resumeAudioOnInteraction);
+
+        // --- NUEVO: CONFIGURACIÓN DEL MAPA DE TRAYECTORIA ---
+        const trajectoryCanvas = document.getElementById('trajectory-canvas');
+        const trajectoryCtx = trajectoryCanvas.getContext('2d');
+        trajectoryCanvas.width = 200;
+        trajectoryCanvas.height = 200;
+        const trajectoryPoints = [];
+        const maxTrajectoryPoints = 300;
+        let frameCounter = 0;
+
+        // --- NUEVO: CONFIGURACIÓN DEL MUNDO FÍSICO ---
+        const world = new CANNON.World();
+        world.gravity.set(0, -9.82, 0); // Gravedad similar a la de la Tierra
+
+        // Se crea el renderizador, que es responsable de dibujar la escena en el lienzo.
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+        // --- 2. CONFIGURACIÓN DE LA CÁMARA ---
+        // Se crea una cámara de perspectiva.
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+        // Se establece la posición de la cámara en coordenadas fijas.
+        const cameraOffset = new THREE.Vector3(15, 10, 15);
+        camera.position.copy(cameraOffset);
+
+        // --- 3. CREACIÓN DEL OBJETO DE DRON ---
+        // Se crea un grupo para el dron, que actuará como contenedor para sus partes.
+        const drone = new THREE.Group();
+        scene.add(drone);
+
+        // NUEVO: Grupo para los elementos visuales del dron, para poder inclinarlo visualmente.
+        const droneVisuals = new THREE.Group();
+        drone.add(droneVisuals);
+
+        // Cuerpo principal del dron
+        const bodyGeometry = new THREE.BoxGeometry(2, 0.5, 2);
+        const bodyMaterial = new THREE.MeshStandardMaterial({
+            color: 0x64b5f6,
+            roughness: 0.5,
+            metalness: 0.7
+        });
+        const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+        droneVisuals.add(body);
+
+        // Hélices del dron (cuatro cubos pequeños)
+        const propellerGeometry = new THREE.BoxGeometry(0.5, 0.1, 0.5);
+        const propellerMaterial = new THREE.MeshStandardMaterial({
+            color: 0xff0000,
+            roughness: 0.8,
+            metalness: 0.3
+        });
+
+        const propellers = [];
+        const propeller1 = new THREE.Mesh(propellerGeometry, propellerMaterial);
+        propeller1.position.set(1.2, 0.3, 1.2);
+        droneVisuals.add(propeller1);
+        propellers.push(propeller1);
+
+        const propeller2 = new THREE.Mesh(propellerGeometry, propellerMaterial);
+        propeller2.position.set(-1.2, 0.3, 1.2);
+        droneVisuals.add(propeller2);
+        propellers.push(propeller2);
+
+        const propeller3 = new THREE.Mesh(propellerGeometry, propellerMaterial);
+        propeller3.position.set(1.2, 0.3, -1.2);
+        droneVisuals.add(propeller3);
+        propellers.push(propeller3);
+
+        const propeller4 = new THREE.Mesh(propellerGeometry, propellerMaterial);
+        propeller4.position.set(-1.2, 0.3, -1.2);
+        droneVisuals.add(propeller4);
+        propellers.push(propeller4);
+
+        // --- NUEVO: FÍSICA DEL DRON ---
+        const droneShape = new CANNON.Box(new CANNON.Vec3(1, 0.25, 1));
+        const droneBody = new CANNON.Body({
+            mass: 1, // Masa del dron en kg
+            position: new CANNON.Vec3(0, 5, 0), // Posición inicial elevada
+            shape: droneShape,
+            linearDamping: 0.5, // Simula la resistencia del aire al movimiento
+            angularDamping: 0.8  // Simula la resistencia del aire a la rotación
+        });
+        world.addBody(droneBody);
+
+        // --- NUEVO: SUELO ---
+        // Suelo Físico (invisible)
+        const groundBody = new CANNON.Body({
+            type: CANNON.Body.STATIC, // Es un cuerpo estático
+            shape: new CANNON.Plane(),
+        });
+        groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0); // Lo alinea con el plano XZ
+        world.addBody(groundBody);
+        
+        // Suelo Visual (visible)
+        const groundMesh = new THREE.Mesh(
+            new THREE.PlaneGeometry(200, 200),
+            new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 1.0 })
+        );
+        groundMesh.rotation.x = -Math.PI / 2;
+        scene.add(groundMesh);
+
+        // --- 4. HACER QUE LA CÁMARA APUNTE AL OBJETO ---
+        // La cámara siempre apuntará al grupo del dron.
+        camera.lookAt(drone.position);
+
+        // --- 5. AÑADIR LUCES A LA ESCENA ---
+        // Las luces son necesarias para ver objetos con MeshStandardMaterial.
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        directionalLight.position.set(5, 10, 5).normalize();
+        scene.add(directionalLight);
+
+        // --- 6. MANEJO DE CONTROLES DE TECLADO ---
+        const keys = {};
+        window.addEventListener('keydown', (event) => {
+            keys[event.key.toLowerCase()] = true;
+        });
+        window.addEventListener('keyup', (event) => {
+            keys[event.key.toLowerCase()] = false;
+        });
+
+        // --- NUEVO: MANEJO DE CONTROLES EN PANTALLA ---
+        function setupButtonControls() {
+            const controlMapping = {
+                'btn-forward': 'arrowup',
+                'btn-backward': 'arrowdown',
+                'btn-left': 'arrowleft',
+                'btn-right': 'arrowright',
+                'btn-up': 'w',
+                'btn-down': 's',
+                'btn-rot-left': 'a',
+                'btn-rot-right': 'd'
+            };
+
+            for (const [buttonId, key] of Object.entries(controlMapping)) {
+                const button = document.getElementById(buttonId);
+                if (button) {
+                    // Eventos para presionar el botón (ratón o táctil)
+                    const startPress = (e) => {
+                        e.preventDefault();
+                        keys[key] = true;
+                        button.classList.add('active');
+                    };
+                    
+                    // Eventos para soltar el botón
+                    const endPress = (e) => {
+                        e.preventDefault();
+                        keys[key] = false;
+                        button.classList.remove('active');
+                    };
+
+                    button.addEventListener('mousedown', startPress);
+                    button.addEventListener('touchstart', startPress, { passive: false });
+                    
+                    button.addEventListener('mouseup', endPress);
+                    button.addEventListener('mouseleave', endPress); // Si el cursor se sale del botón
+                    button.addEventListener('touchend', endPress);
+                }
+            }
+        }
+        setupButtonControls();
+
+        // --- 7. BUCLE DE ANIMACIÓN ---
+        const clock = new THREE.Clock();
+        
+        // --- NUEVO: PARÁMETROS PARA EL CONTROL DE ALTITUD ---
+        let targetAltitude = 5.0; // Altura objetivo inicial
+        const altitudePD = {
+            Kp: 25, // Ganancia proporcional: corrige el error de posición
+            Kd: 15  // Ganancia derivativa: amortigua la velocidad para evitar oscilaciones
+        };
+        const maxUpwardForce = 40; // Limita la fuerza máxima para evitar que sea muy brusco
+        const gravity = 9.82;
+
+        // --- NUEVO: FUNCIÓN PARA DIBUJAR LA TRAYECTORIA ---
+        function drawTrajectory() {
+            const width = trajectoryCanvas.width;
+            const height = trajectoryCanvas.height;
+            const scale = 3; // Píxeles por metro en el mundo. Aumentar para más zoom.
+            const currentPos = droneBody.position;
+
+            // --- CORRECCIÓN: La función toEuler de CANNON.js no devuelve un valor, 
+            // sino que modifica el vector que se le pasa como argumento.
+            const euler = new CANNON.Vec3();
+            droneBody.quaternion.toEuler(euler);
+            const droneAngle = euler.y;
+
+            // 1. Limpiar el canvas
+            trajectoryCtx.clearRect(0, 0, width, height);
+
+            // 2. Dibujar los puntos de la trayectoria
+            trajectoryCtx.fillStyle = '#64b5f6'; // Color de los puntos
+            trajectoryPoints.forEach(point => {
+                // Centrar el mapa en la posición actual del dron
+                const canvasX = (point.x - currentPos.x) * scale + width / 2;
+                const canvasZ = (point.z - currentPos.z) * scale + height / 2;
+
+                // Dibujar solo si el punto está dentro del canvas
+                if (canvasX >= 0 && canvasX <= width && canvasZ >= 0 && canvasZ <= height) {
+                    trajectoryCtx.beginPath();
+                    trajectoryCtx.arc(canvasX, canvasZ, 1, 0, Math.PI * 2);
+                    trajectoryCtx.fill();
+                }
+            });
+
+            // 3. Dibujar el dron (un triángulo que indica la dirección)
+            const droneSize = 6;
+            trajectoryCtx.save();
+            trajectoryCtx.translate(width / 2, height / 2); // Mover origen al centro
+            trajectoryCtx.rotate(-droneAngle); // Rotar para que coincida con la orientación del dron
+            
+            trajectoryCtx.fillStyle = '#ff0000'; // Color del dron
+            trajectoryCtx.beginPath();
+            trajectoryCtx.moveTo(0, -droneSize); // Punta del triángulo
+            trajectoryCtx.lineTo(droneSize / 2, droneSize / 2);
+            trajectoryCtx.lineTo(-droneSize / 2, droneSize / 2);
+            trajectoryCtx.closePath();
+            trajectoryCtx.fill();
+            
+            trajectoryCtx.restore(); // Restaurar el estado del canvas
+        }
+
+        // Se define el bucle de animación para que la escena se renderice continuamente.
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const deltaTime = clock.getDelta();
+
+            // Actualizar el mundo físico
+            world.step(1 / 60, deltaTime, 3);
+
+            // Sincronizar el dron visual con el cuerpo físico
+            drone.position.copy(droneBody.position);
+            drone.quaternion.copy(droneBody.quaternion);
+
+            // --- NUEVO: CAPTURAR Y DIBUJAR TRAYECTORIA ---
+            frameCounter++;
+            if (frameCounter % 5 === 0) { // Añadir un punto cada 5 frames
+                trajectoryPoints.push({ x: droneBody.position.x, z: droneBody.position.z });
+                if (trajectoryPoints.length > maxTrajectoryPoints) {
+                    trajectoryPoints.shift(); // Eliminar el punto más antiguo si se excede el límite
+                }
+            }
+            drawTrajectory();
+
+            // --- Control del Dron con Físicas ---
+            const torque = 1.0;     // Fuerza de rotación
+            const moveForce = 8;    // Fuerza de movimiento horizontal
+
+            let upwardForce = 0;
+
+            // --- NUEVO: LÓGICA DE CONTROL DE ALTITUD (HOVER) ---
+            // 1. El usuario ajusta la altitud objetivo con W/S
+            const altitudeAdjustSpeed = 2.0;
+            if (keys['w']) {
+                targetAltitude += altitudeAdjustSpeed * deltaTime;
+            }
+            if (keys['s']) {
+                targetAltitude -= altitudeAdjustSpeed * deltaTime;
+            }
+            // Evitar que el dron intente ir bajo tierra
+            if (targetAltitude < 0.5) {
+                targetAltitude = 0.5;
+            }
+
+            // 2. Se calcula la fuerza necesaria para mantener la altitud (PD Controller)
+            const altitudeError = targetAltitude - droneBody.position.y;
+            const verticalVelocity = droneBody.velocity.y;
+            
+            // Fuerza para compensar la gravedad + fuerza para corregir la altitud
+            upwardForce = (droneBody.mass * gravity) + (altitudeError * altitudePD.Kp) - (verticalVelocity * altitudePD.Kd);
+
+            // 3. Limitar la fuerza para que el movimiento no sea demasiado abrupto
+            upwardForce = Math.max(0, Math.min(upwardForce, maxUpwardForce));
+            
+            // --- NUEVO: VINCULAR LA VELOCIDAD DE LAS HÉLICES A LA FUERZA DE SUSTENTACIÓN ---
+            const propellerSpeed = (upwardForce / maxUpwardForce) * 0.5; // El 0.5 es un multiplicador de velocidad
+
+            // 4. Aplicar la fuerza calculada en la dirección 'arriba' local del dron
+            const upwardForceVec = new CANNON.Vec3(0, upwardForce, 0);
+            droneBody.applyLocalForce(upwardForceVec, new CANNON.Vec3(0, 0, 0));
+
+            // --- NUEVO: CONTROL DEL SONIDO DEL DRON ---
+            if (droneGainNode && droneSourceNode) {
+                // El volumen base es bajo, aumenta con la fuerza de sustentación
+                const targetVolume = 0.1 + (upwardForce / maxUpwardForce) * 0.4;
+                // La velocidad de reproducción (tono) también cambia con la fuerza
+                const targetPlaybackRate = 1.0 + (upwardForce / maxUpwardForce) * 0.5;
+
+                // Interpolar suavemente para evitar clics de audio
+                droneGainNode.gain.setTargetAtTime(targetVolume, audioContext.currentTime, 0.05);
+                droneSourceNode.playbackRate.setTargetAtTime(targetPlaybackRate, audioContext.currentTime, 0.05);
+            }
+
+            // --- Lógica de Movimiento (sin cambios) ---
+            // Rotación izquierda/derecha (A/D) - Aplicar torque
+            if (keys['a']) {
+                const torqueVec = new CANNON.Vec3(0, torque, 0);
+                droneBody.applyTorque(torqueVec);
+            }
+            if (keys['d']) {
+                const torqueVec = new CANNON.Vec3(0, -torque, 0);
+                droneBody.applyTorque(torqueVec);
+            }
+            
+            // Movimiento con flechas (adelante/atrás) - Aplicar fuerza local
+            if (keys['arrowup']) {
+                const force = new CANNON.Vec3(0, 0, -moveForce); // Hacia adelante es -Z local
+                droneBody.applyLocalForce(force, new CANNON.Vec3(0, 0, 0));
+            }
+            if (keys['arrowdown']) {
+                const force = new CANNON.Vec3(0, 0, moveForce);
+                droneBody.applyLocalForce(force, new CANNON.Vec3(0, 0, 0));
+            }
+
+            // Movimiento con flechas (izquierda/derecha) - Aplicar fuerza local
+            if (keys['arrowleft']) {
+                const force = new CANNON.Vec3(-moveForce, 0, 0); // Hacia la izquierda es -X local
+                droneBody.applyLocalForce(force, new CANNON.Vec3(0, 0, 0));
+            }
+            if (keys['arrowright']) {
+                const force = new CANNON.Vec3(moveForce, 0, 0);
+                droneBody.applyLocalForce(force, new CANNON.Vec3(0, 0, 0));
+            }
+
+            // --- NUEVO: LÓGICA DE INCLINACIÓN VISUAL ---
+            const tiltAngle = Math.PI / 12; // Máximo ángulo de inclinación (15 grados)
+            const tiltSpeed = 0.1;          // Velocidad de la animación de inclinación
+
+            // 1. Determinar el ángulo de inclinación objetivo basado en las teclas presionadas
+            let targetTiltX = 0; // Inclinación adelante/atrás (pitch)
+            let targetTiltZ = 0; // Inclinación izquierda/derecha (roll)
+
+            if (keys['arrowup']) {
+                targetTiltX = -tiltAngle; // Inclinarse hacia adelante
+            }
+            if (keys['arrowdown']) {
+                targetTiltX = tiltAngle; // Inclinarse hacia atrás
+            }
+            if (keys['arrowleft']) {
+                targetTiltZ = tiltAngle; // Inclinarse a la derecha (INVERTIDO)
+            }
+            if (keys['arrowright']) {
+                targetTiltZ = -tiltAngle; // Inclinarse a la izquierda (INVERTIDO)
+            }
+
+            // 2. Interpolar suavemente la rotación visual actual hacia el objetivo
+            // Esto crea una animación de inclinación y nivelación suave.
+            droneVisuals.rotation.x += (targetTiltX - droneVisuals.rotation.x) * tiltSpeed;
+            droneVisuals.rotation.z += (targetTiltZ - droneVisuals.rotation.z) * tiltSpeed;
+
+            // Animar hélices
+            propellers.forEach((prop, i) => {
+                const direction = (i % 2 === 0) ? 1 : -1;
+                prop.rotation.y += propellerSpeed * direction;
+            });
+
+            // --- Actualizar Cámara ---
+            // La cámara ahora tiene una posición fija, pero sigue apuntando al dron.
+            camera.lookAt(drone.position);
+
+            // Renderizar la escena
+            renderer.render(scene, camera);
+        }
+
+        // Se inicia el bucle de animación.
+        animate();
+
+        // --- 8. MANEJO DE CAMBIOS DE TAMAÑO DE VENTANA ---
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
